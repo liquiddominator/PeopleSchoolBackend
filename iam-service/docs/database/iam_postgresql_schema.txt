@@ -1,0 +1,364 @@
+-- Consolidated PostgreSQL schema for iam-service.
+-- Source migrations: V1 through V6.
+-- This file is documentation-oriented. Flyway migrations remain the executable source of truth.
+
+CREATE TABLE IF NOT EXISTS iam_module (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    code VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT uk_iam_module_tenant_code UNIQUE (tenant_id, code),
+    CONSTRAINT uk_iam_module_tenant_name UNIQUE (tenant_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS iam_resource (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    code VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    module_id BIGINT NOT NULL REFERENCES iam_module(id),
+    CONSTRAINT uk_iam_resource_tenant_code UNIQUE (tenant_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS iam_action (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    code VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT uk_iam_action_tenant_code UNIQUE (tenant_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS iam_field (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    name VARCHAR(100) NOT NULL,
+    resource_id BIGINT NOT NULL REFERENCES iam_resource(id)
+);
+
+CREATE TABLE IF NOT EXISTS iam_role (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    hierarchy_level INTEGER NOT NULL DEFAULT 100,
+    parent_role_id BIGINT REFERENCES iam_role(id),
+    CONSTRAINT uk_iam_role_tenant_name UNIQUE (tenant_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS iam_user (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    username VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT uk_iam_user_tenant_username UNIQUE (tenant_id, username),
+    CONSTRAINT uk_iam_user_tenant_email UNIQUE (tenant_id, email)
+);
+
+CREATE TABLE IF NOT EXISTS iam_permission (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    role_id BIGINT NOT NULL REFERENCES iam_role(id) ON DELETE CASCADE,
+    module_id BIGINT NOT NULL REFERENCES iam_module(id),
+    resource_id BIGINT NOT NULL REFERENCES iam_resource(id),
+    action_id BIGINT NOT NULL REFERENCES iam_action(id),
+    field_id BIGINT REFERENCES iam_field(id)
+);
+
+CREATE TABLE IF NOT EXISTS iam_user_roles (
+    user_id BIGINT NOT NULL REFERENCES iam_user(id) ON DELETE CASCADE,
+    role_id BIGINT NOT NULL REFERENCES iam_role(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, role_id)
+);
+
+CREATE TABLE IF NOT EXISTS iam_user_credential (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES iam_user(id) ON DELETE CASCADE,
+    tenant_id VARCHAR(100) NOT NULL,
+    password_hash VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_modified_at TIMESTAMP,
+    CONSTRAINT uk_iam_user_credential_user UNIQUE (user_id),
+    CONSTRAINT uk_iam_user_credential_tenant_user UNIQUE (tenant_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS iam_refresh_token (
+    id BIGSERIAL PRIMARY KEY,
+    token_id VARCHAR(120) NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES iam_user(id) ON DELETE CASCADE,
+    tenant_id VARCHAR(100) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_iam_refresh_token_token_id UNIQUE (token_id)
+);
+
+CREATE TABLE IF NOT EXISTS iam_branch (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id VARCHAR(100) NOT NULL,
+    code VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_modified_at TIMESTAMP,
+    CONSTRAINT uk_iam_branch_tenant_code UNIQUE (tenant_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS iam_user_scope (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id VARCHAR(100) NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES iam_user(id) ON DELETE CASCADE,
+    branch_id BIGINT REFERENCES iam_branch(id),
+    scope_type VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    tenant_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    event_type VARCHAR(100),
+    entity_type VARCHAR(255),
+    entity_id VARCHAR(255),
+    user_id VARCHAR(100),
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    details TEXT,
+    correlation_id VARCHAR(100),
+    action VARCHAR(100),
+    entity VARCHAR(255),
+    occurred_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_iam_module_tenant ON iam_module(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_resource_tenant ON iam_resource(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_action_tenant ON iam_action(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_field_tenant ON iam_field(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_role_tenant ON iam_role(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_role_parent_role ON iam_role(parent_role_id);
+CREATE INDEX IF NOT EXISTS idx_iam_role_tenant_hierarchy ON iam_role(tenant_id, hierarchy_level);
+CREATE INDEX IF NOT EXISTS idx_iam_user_tenant ON iam_user(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_permission_tenant ON iam_permission(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_user_roles_user ON iam_user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_iam_user_roles_role ON iam_user_roles(role_id);
+CREATE INDEX IF NOT EXISTS idx_iam_user_credential_tenant ON iam_user_credential(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_refresh_token_tenant ON iam_refresh_token(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_refresh_token_user ON iam_refresh_token(user_id);
+CREATE INDEX IF NOT EXISTS idx_iam_branch_tenant ON iam_branch(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_iam_user_scope_user ON iam_user_scope(user_id);
+CREATE INDEX IF NOT EXISTS idx_iam_user_scope_branch ON iam_user_scope(branch_id);
+CREATE INDEX IF NOT EXISTS idx_iam_user_scope_tenant ON iam_user_scope(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_occurred_at ON audit_log(occurred_at DESC);
+
+-- Bootstrap action catalog for SYSTEM.
+INSERT INTO iam_action (tenant_id, code, name, version)
+SELECT 'SYSTEM', 'CREATE', 'Create', 0
+WHERE NOT EXISTS (SELECT 1 FROM iam_action WHERE tenant_id = 'SYSTEM' AND code = 'CREATE');
+
+INSERT INTO iam_action (tenant_id, code, name, version)
+SELECT 'SYSTEM', 'READ', 'Read', 0
+WHERE NOT EXISTS (SELECT 1 FROM iam_action WHERE tenant_id = 'SYSTEM' AND code = 'READ');
+
+INSERT INTO iam_action (tenant_id, code, name, version)
+SELECT 'SYSTEM', 'UPDATE', 'Update', 0
+WHERE NOT EXISTS (SELECT 1 FROM iam_action WHERE tenant_id = 'SYSTEM' AND code = 'UPDATE');
+
+INSERT INTO iam_action (tenant_id, code, name, version)
+SELECT 'SYSTEM', 'DELETE', 'Delete', 0
+WHERE NOT EXISTS (SELECT 1 FROM iam_action WHERE tenant_id = 'SYSTEM' AND code = 'DELETE');
+
+INSERT INTO iam_action (tenant_id, code, name, version)
+SELECT 'SYSTEM', 'EXECUTE', 'Execute', 0
+WHERE NOT EXISTS (SELECT 1 FROM iam_action WHERE tenant_id = 'SYSTEM' AND code = 'EXECUTE');
+
+-- Bootstrap global administrator.
+INSERT INTO iam_role (tenant_id, name, description, version, hierarchy_level)
+SELECT '00000000-0000-0000-0000-000000000000',
+       'ADMIN_GLOBAL',
+       'Administrador global con visibilidad cross-tenant',
+       0,
+       0
+WHERE NOT EXISTS (
+    SELECT 1 FROM iam_role
+    WHERE tenant_id = '00000000-0000-0000-0000-000000000000'
+      AND LOWER(name) = LOWER('ADMIN_GLOBAL')
+);
+
+INSERT INTO iam_user (tenant_id, username, email, active, version)
+SELECT '00000000-0000-0000-0000-000000000000',
+       'admin.global',
+       'admin.global@agrocore.com',
+       TRUE,
+       0
+WHERE NOT EXISTS (
+    SELECT 1 FROM iam_user
+    WHERE tenant_id = '00000000-0000-0000-0000-000000000000'
+      AND (LOWER(username) = LOWER('admin.global')
+       OR LOWER(email) = LOWER('admin.global@agrocore.com'))
+);
+
+INSERT INTO iam_user_credential (user_id, tenant_id, password_hash)
+SELECT u.id,
+       '00000000-0000-0000-0000-000000000000',
+       '$2a$10$Hq1WejDGlv0fpyC6.VRyFeq6Gvgg3LkDGZ5lhgRGTPjbts8cUUaG.'
+FROM iam_user u
+WHERE u.tenant_id = '00000000-0000-0000-0000-000000000000'
+  AND LOWER(u.username) = LOWER('admin.global')
+  AND NOT EXISTS (SELECT 1 FROM iam_user_credential c WHERE c.user_id = u.id);
+
+INSERT INTO iam_user_roles (user_id, role_id)
+SELECT u.id, r.id
+FROM iam_user u
+JOIN iam_role r
+  ON r.tenant_id = '00000000-0000-0000-0000-000000000000'
+ AND LOWER(r.name) = LOWER('ADMIN_GLOBAL')
+WHERE u.tenant_id = '00000000-0000-0000-0000-000000000000'
+  AND LOWER(u.username) = LOWER('admin.global')
+  AND NOT EXISTS (
+    SELECT 1 FROM iam_user_roles ur
+    WHERE ur.user_id = u.id
+      AND ur.role_id = r.id
+);
+
+INSERT INTO iam_user_scope (tenant_id, user_id, branch_id, scope_type)
+SELECT '00000000-0000-0000-0000-000000000000', u.id, NULL, 'GLOBAL'
+FROM iam_user u
+WHERE u.tenant_id = '00000000-0000-0000-0000-000000000000'
+  AND LOWER(u.username) = LOWER('admin.global')
+  AND NOT EXISTS (
+    SELECT 1 FROM iam_user_scope s
+    WHERE s.user_id = u.id
+      AND UPPER(s.scope_type) = 'GLOBAL'
+);
+
+-- Permission catalog and ADMIN_GLOBAL grants.
+INSERT INTO iam_module (tenant_id, code, name, version)
+SELECT '00000000-0000-0000-0000-000000000000', module_code, module_name, 0
+FROM (VALUES
+    ('iam.users', 'IAM Users'),
+    ('iam.roles', 'IAM Roles'),
+    ('iam.permissions', 'IAM Permissions'),
+    ('iam.branches', 'IAM Branches'),
+    ('operations', 'Operations'),
+    ('people-school', 'People School'),
+    ('people-school.sensitive', 'People School Sensitive Data')
+) AS seed(module_code, module_name)
+WHERE NOT EXISTS (
+    SELECT 1 FROM iam_module m
+    WHERE m.tenant_id = '00000000-0000-0000-0000-000000000000'
+      AND m.code = seed.module_code
+);
+
+INSERT INTO iam_resource (tenant_id, code, name, module_id, version)
+SELECT m.tenant_id, m.code, m.name, m.id, 0
+FROM iam_module m
+WHERE m.tenant_id = '00000000-0000-0000-0000-000000000000'
+  AND m.code IN (
+      'iam.users',
+      'iam.roles',
+      'iam.permissions',
+      'iam.branches',
+      'operations',
+      'people-school',
+      'people-school.sensitive'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM iam_resource r
+    WHERE r.tenant_id = m.tenant_id
+      AND r.code = m.code
+);
+
+INSERT INTO iam_action (tenant_id, code, name, version)
+SELECT '00000000-0000-0000-0000-000000000000', action_code, action_name, 0
+FROM (VALUES ('read', 'Read'), ('write', 'Write')) AS seed(action_code, action_name)
+WHERE NOT EXISTS (
+    SELECT 1 FROM iam_action a
+    WHERE a.tenant_id = '00000000-0000-0000-0000-000000000000'
+      AND a.code = seed.action_code
+);
+
+INSERT INTO iam_permission (tenant_id, role_id, module_id, resource_id, action_id, field_id, version)
+SELECT r.tenant_id, r.id, m.id, res.id, a.id, NULL, 0
+FROM iam_role r
+JOIN iam_module m
+  ON m.tenant_id = r.tenant_id
+ AND m.code IN (
+     'iam.users',
+     'iam.roles',
+     'iam.permissions',
+     'iam.branches',
+     'people-school',
+     'people-school.sensitive'
+ )
+JOIN iam_resource res ON res.tenant_id = r.tenant_id AND res.code = m.code
+JOIN iam_action a ON a.tenant_id = r.tenant_id AND a.code IN ('read', 'write')
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000000'
+  AND LOWER(r.name) = LOWER('ADMIN_GLOBAL')
+  AND NOT EXISTS (
+    SELECT 1 FROM iam_permission p
+    WHERE p.tenant_id = r.tenant_id
+      AND p.role_id = r.id
+      AND p.module_id = m.id
+      AND p.resource_id = res.id
+      AND p.action_id = a.id
+      AND p.field_id IS NULL
+);
+
+INSERT INTO iam_permission (tenant_id, role_id, module_id, resource_id, action_id, field_id, version)
+SELECT r.tenant_id, r.id, m.id, res.id, a.id, NULL, 0
+FROM iam_role r
+JOIN iam_module m ON m.tenant_id = r.tenant_id AND m.code = 'operations'
+JOIN iam_resource res ON res.tenant_id = r.tenant_id AND res.code = m.code
+JOIN iam_action a ON a.tenant_id = r.tenant_id AND a.code = 'read'
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000000'
+  AND LOWER(r.name) = LOWER('ADMIN_GLOBAL')
+  AND NOT EXISTS (
+    SELECT 1 FROM iam_permission p
+    WHERE p.tenant_id = r.tenant_id
+      AND p.role_id = r.id
+      AND p.module_id = m.id
+      AND p.resource_id = res.id
+      AND p.action_id = a.id
+      AND p.field_id IS NULL
+);

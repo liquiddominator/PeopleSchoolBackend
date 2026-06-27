@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://people-school-postgres:5432/person_registry
+    username: person_registry
+    password: person_registry
+  data:
+    redis:
+      host: ${PEOPLE_SCHOOL_REDIS_HOST:host.docker.internal}
+      port: ${PEOPLE_SCHOOL_REDIS_PORT:6379}
+
+server:
+  port: 8080

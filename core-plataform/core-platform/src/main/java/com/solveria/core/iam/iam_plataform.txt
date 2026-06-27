@@ -1,0 +1,68 @@
+Listado de rutas de carpetas
+El n·mero de serie del volumen es 30C0-EA3B
+C:.
+ª   iam_plataform.txt
+ª
++---application
+ª   +---command
+ª   ª       AssignPermissionsToRoleCommand.java
+ª   ª       AssignRolesToUserCommand.java
+ª   ª       CreateRoleCommand.java
+ª   ª
+ª   +---port
+ª   ª       ActionRepositoryPort.java
+ª   ª       FieldRepositoryPort.java
+ª   ª       ModuleRepositoryPort.java
+ª   ª       PermissionRepositoryPort.java
+ª   ª       ResourceRepositoryPort.java
+ª   ª       RoleRepositoryPort.java
+ª   ª       UserRepositoryPort.java
+ª   ª
+ª   +---query
+ª   ª       GetRoleByIdQuery.java
+ª   ª
+ª   +---service
+ª   +---usecase
+ª           AssignPermissionsToRoleUseCase.java
+ª           AssignRolesToUserUseCase.java
+ª           CreateRoleUseCase.java
+ª
++---domain
+ª   +---model
+ª   ª       Action.java
+ª   ª       Field.java
+ª   ª       Module.java
+ª   ª       Permission.java
+ª   ª       Resource.java
+ª   ª       Role.java
+ª   ª       User.java
+ª   ª
+ª   +---service
+ª   ª       PermissionEvaluatorService.java
+ª   ª
+ª   +---valueobject
+ª           PermissionDefinition.java
+ª
++---infrastructure
+    +---persistence
+        +---adapter
+        ª       ActionRepositoryAdapter.java
+        ª       FieldRepositoryAdapter.java
+        ª       ModuleRepositoryAdapter.java
+        ª       PermissionRepositoryAdapter.java
+        ª       ResourceRepositoryAdapter.java
+        ª       RoleRepositoryAdapter.java
+        ª       UserRepositoryAdapter.java
+        ª
+        +---entity
+        +---repository
+        ª       ActionJpaRepository.java
+        ª       FieldJpaRepository.java
+        ª       ModuleJpaRepository.java
+        ª       PermissionJpaRepository.java
+        ª       ResourceJpaRepository.java
+        ª       RoleJpaRepository.java
+        ª       UserJpaRepository.java
+        ª
+        +---specification
+                IamSpecifications.java

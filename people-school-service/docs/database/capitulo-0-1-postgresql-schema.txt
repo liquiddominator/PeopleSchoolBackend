@@ -1,0 +1,1068 @@
+-- PEOPLECOLE
+-- Capitulo 0 + Capitulo 1 - PostgreSQL proposed schema
+-- Modular monolith: people-school-service
+--
+-- Source document:
+-- People Cole - Capitulo 0 BACKEND Modulo Transversal - Registro Maestro De Personas, Familias Y Apoderados.docx
+-- People Cole - Capitulo 1 BACKEND - Gobierno Institucional, Temporal, Organizacional Y Documental Maestro.docx
+--
+-- Notes:
+-- - This file documents the schema proposed by the Capitulo 0 document.
+-- - It includes reviewed improvements for audit consistency, identity uniqueness,
+--   self-relationship safeguards and operational lookup indexes.
+-- - The Capitulo 1 section includes reviewed improvements for audit consistency,
+--   temporal integrity, operational indexes and binding uniqueness.
+-- - This is not a Flyway migration yet.
+-- - site_id, organizational_unit_id, role_code and appointment_code in Capitulo 0
+--   are still kept as originally proposed by Capitulo 0.
+-- - pc_governance_document_binding.digital_asset_id is intentionally kept without
+--   a foreign key until the digital asset schema is defined in this vertical.
+
+-- ============================================================
+-- CAPITULO 0: REGISTRO MAESTRO DE PERSONAS, FAMILIAS Y
+-- APODERADOS
+-- ============================================================
+
+CREATE TABLE pc_person (
+    id BIGSERIAL PRIMARY KEY,
+    person_code VARCHAR(80) NOT NULL,
+    person_type_code VARCHAR(50) NOT NULL,
+    core_status VARCHAR(50) NOT NULL,
+    primary_photo_asset_id BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_person_code UNIQUE (person_code)
+);
+
+CREATE INDEX idx_pc_person_type_status
+ON pc_person (person_type_code, core_status);
+
+
+CREATE TABLE pc_person_legal_identity (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    document_type_code VARCHAR(50) NOT NULL,
+    document_number VARCHAR(120) NOT NULL,
+    issuing_country_code VARCHAR(20),
+    issuing_region_code VARCHAR(50),
+    legal_identity_status VARCHAR(50) NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT TRUE,
+    verified_at TIMESTAMP,
+    verified_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_person_legal_identity UNIQUE (document_type_code, document_number, issuing_country_code)
+);
+
+CREATE INDEX idx_pc_person_legal_identity_person
+ON pc_person_legal_identity (person_id);
+
+CREATE INDEX idx_pc_person_legal_identity_status
+ON pc_person_legal_identity (legal_identity_status);
+
+
+CREATE TABLE pc_person_name_profile (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    name_type_code VARCHAR(50) NOT NULL,
+    first_name VARCHAR(150) NOT NULL,
+    middle_name VARCHAR(150),
+    last_name VARCHAR(150) NOT NULL,
+    second_last_name VARCHAR(150),
+    display_name VARCHAR(255),
+    is_primary BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_person_name_profile_person
+ON pc_person_name_profile (person_id);
+
+CREATE INDEX idx_pc_person_name_profile_type
+ON pc_person_name_profile (name_type_code, is_primary);
+
+
+CREATE TABLE pc_person_contact_point (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    contact_type_code VARCHAR(50) NOT NULL,
+    contact_value VARCHAR(255) NOT NULL,
+    usage_code VARCHAR(50),
+    contact_status VARCHAR(50) NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    verified_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_person_contact_point_person
+ON pc_person_contact_point (person_id);
+
+CREATE INDEX idx_pc_person_contact_point_type
+ON pc_person_contact_point (contact_type_code, contact_status, is_primary);
+
+
+CREATE TABLE pc_person_address (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    address_type_code VARCHAR(50) NOT NULL,
+    country_code VARCHAR(20),
+    region_name VARCHAR(120),
+    city_name VARCHAR(120),
+    district_name VARCHAR(120),
+    address_line_1 VARCHAR(255) NOT NULL,
+    address_line_2 VARCHAR(255),
+    postal_code VARCHAR(30),
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    address_status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_person_address_person
+ON pc_person_address (person_id);
+
+CREATE INDEX idx_pc_person_address_type
+ON pc_person_address (address_type_code, address_status, is_primary);
+
+
+CREATE TABLE pc_household (
+    id BIGSERIAL PRIMARY KEY,
+    household_code VARCHAR(80) NOT NULL,
+    household_name VARCHAR(220) NOT NULL,
+    household_type_code VARCHAR(50) NOT NULL,
+    household_status VARCHAR(50) NOT NULL,
+    primary_billing_address_id BIGINT REFERENCES pc_person_address(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_household_code UNIQUE (household_code)
+);
+
+
+CREATE TABLE pc_household_membership (
+    id BIGSERIAL PRIMARY KEY,
+    household_id BIGINT NOT NULL REFERENCES pc_household(id),
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    membership_role_code VARCHAR(50) NOT NULL,
+    membership_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    is_primary_guardian_group BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_household_membership UNIQUE (household_id, person_id, membership_role_code),
+    CONSTRAINT ck_pc_household_membership_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_household_membership_household
+ON pc_household_membership (household_id);
+
+CREATE INDEX idx_pc_household_membership_person
+ON pc_household_membership (person_id);
+
+CREATE INDEX idx_pc_household_membership_status_dates
+ON pc_household_membership (membership_status, effective_from, effective_to);
+
+
+CREATE TABLE pc_guardian_relationship (
+    id BIGSERIAL PRIMARY KEY,
+    student_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    guardian_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    household_id BIGINT REFERENCES pc_household(id),
+    guardian_type_code VARCHAR(50) NOT NULL,
+    legal_authority_status VARCHAR(50) NOT NULL,
+    school_authority_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_guardian_relationship_distinct_people CHECK (student_person_id <> guardian_person_id),
+    CONSTRAINT ck_pc_guardian_relationship_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_guardian_relationship_student
+ON pc_guardian_relationship (student_person_id);
+
+CREATE INDEX idx_pc_guardian_relationship_guardian
+ON pc_guardian_relationship (guardian_person_id);
+
+CREATE INDEX idx_pc_guardian_relationship_household
+ON pc_guardian_relationship (household_id);
+
+CREATE INDEX idx_pc_guardian_relationship_status_dates
+ON pc_guardian_relationship (student_person_id, legal_authority_status, school_authority_status, effective_from, effective_to);
+
+
+CREATE TABLE pc_emergency_contact (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    contact_person_id BIGINT REFERENCES pc_person(id),
+    emergency_priority INTEGER NOT NULL DEFAULT 1,
+    relationship_label VARCHAR(100),
+    emergency_status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_emergency_contact_priority CHECK (emergency_priority > 0),
+    CONSTRAINT ck_pc_emergency_contact_distinct_people CHECK (contact_person_id IS NULL OR person_id <> contact_person_id)
+);
+
+CREATE INDEX idx_pc_emergency_contact_person
+ON pc_emergency_contact (person_id);
+
+CREATE INDEX idx_pc_emergency_contact_priority
+ON pc_emergency_contact (emergency_priority, emergency_status);
+
+
+CREATE TABLE pc_financial_responsible_relationship (
+    id BIGSERIAL PRIMARY KEY,
+    beneficiary_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    responsible_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    household_id BIGINT REFERENCES pc_household(id),
+    responsibility_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_financial_responsible_distinct_people CHECK (beneficiary_person_id <> responsible_person_id),
+    CONSTRAINT ck_pc_financial_responsible_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_financial_responsible_beneficiary
+ON pc_financial_responsible_relationship (beneficiary_person_id);
+
+CREATE INDEX idx_pc_financial_responsible_responsible
+ON pc_financial_responsible_relationship (responsible_person_id);
+
+CREATE INDEX idx_pc_financial_responsible_status_dates
+ON pc_financial_responsible_relationship (beneficiary_person_id, responsibility_status, effective_from, effective_to);
+
+
+CREATE TABLE pc_pickup_authorization (
+    id BIGSERIAL PRIMARY KEY,
+    student_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    authorized_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    authorization_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    authorization_scope_code VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_pickup_authorization_distinct_people CHECK (student_person_id <> authorized_person_id),
+    CONSTRAINT ck_pc_pickup_authorization_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_pickup_authorization_student
+ON pc_pickup_authorization (student_person_id);
+
+CREATE INDEX idx_pc_pickup_authorization_authorized
+ON pc_pickup_authorization (authorized_person_id);
+
+CREATE INDEX idx_pc_pickup_authorization_status_dates
+ON pc_pickup_authorization (student_person_id, authorization_status, effective_from, effective_to);
+
+
+CREATE TABLE pc_institutional_affiliation (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    affiliation_type_code VARCHAR(50) NOT NULL,
+    site_id BIGINT,
+    organizational_unit_id BIGINT,
+    affiliation_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_institutional_affiliation_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_institutional_affiliation_person
+ON pc_institutional_affiliation (person_id);
+
+CREATE INDEX idx_pc_institutional_affiliation_type_status
+ON pc_institutional_affiliation (affiliation_type_code, affiliation_status);
+
+CREATE INDEX idx_pc_institutional_affiliation_context
+ON pc_institutional_affiliation (site_id, organizational_unit_id);
+
+CREATE INDEX idx_pc_institutional_affiliation_status_dates
+ON pc_institutional_affiliation (person_id, affiliation_status, effective_from, effective_to);
+
+
+CREATE TABLE pc_institutional_role_assignment (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    role_code VARCHAR(50) NOT NULL,
+    site_id BIGINT,
+    organizational_unit_id BIGINT,
+    role_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_institutional_role_assignment_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_institutional_role_assignment_person
+ON pc_institutional_role_assignment (person_id);
+
+CREATE INDEX idx_pc_institutional_role_assignment_role_status
+ON pc_institutional_role_assignment (role_code, role_status);
+
+CREATE INDEX idx_pc_institutional_role_assignment_context
+ON pc_institutional_role_assignment (site_id, organizational_unit_id);
+
+CREATE INDEX idx_pc_institutional_role_assignment_status_dates
+ON pc_institutional_role_assignment (person_id, role_status, effective_from, effective_to);
+
+
+CREATE TABLE pc_school_organizational_appointment (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    appointment_code VARCHAR(50) NOT NULL,
+    site_id BIGINT,
+    organizational_unit_id BIGINT,
+    appointment_status VARCHAR(50) NOT NULL,
+    started_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP,
+    appointment_document_asset_id BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_school_organizational_appointment_dates CHECK (ended_at IS NULL OR ended_at >= started_at)
+);
+
+CREATE INDEX idx_pc_school_organizational_appointment_person
+ON pc_school_organizational_appointment (person_id);
+
+CREATE INDEX idx_pc_school_organizational_appointment_code_status
+ON pc_school_organizational_appointment (appointment_code, appointment_status);
+
+CREATE INDEX idx_pc_school_organizational_appointment_context
+ON pc_school_organizational_appointment (site_id, organizational_unit_id);
+
+CREATE INDEX idx_pc_school_organizational_appointment_status_dates
+ON pc_school_organizational_appointment (person_id, appointment_status, started_at, ended_at);
+
+
+CREATE TABLE pc_person_identity_link (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    iam_subject_id VARCHAR(150) NOT NULL,
+    identity_provider_code VARCHAR(50),
+    identity_link_status VARCHAR(50) NOT NULL,
+    linked_at TIMESTAMP NOT NULL,
+    linked_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_person_identity_link_subject UNIQUE (iam_subject_id)
+);
+
+CREATE INDEX idx_pc_person_identity_link_person
+ON pc_person_identity_link (person_id);
+
+CREATE INDEX idx_pc_person_identity_link_status
+ON pc_person_identity_link (identity_link_status);
+
+
+CREATE TABLE pc_person_document_reference (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    document_reference_type_code VARCHAR(50) NOT NULL,
+    asset_id BIGINT NOT NULL,
+    reference_status VARCHAR(50) NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_person_document_reference_person
+ON pc_person_document_reference (person_id);
+
+CREATE INDEX idx_pc_person_document_reference_type_status
+ON pc_person_document_reference (document_reference_type_code, reference_status);
+
+CREATE INDEX idx_pc_person_document_reference_asset
+ON pc_person_document_reference (asset_id);
+
+
+CREATE TABLE pc_person_sensitive_profile (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    blood_type_code VARCHAR(20),
+    emergency_medical_notes TEXT,
+    sensitive_profile_status VARCHAR(50) NOT NULL,
+    last_reviewed_at TIMESTAMP,
+    last_reviewed_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_person_sensitive_profile_person UNIQUE (person_id)
+);
+
+CREATE INDEX idx_pc_person_sensitive_profile_status
+ON pc_person_sensitive_profile (sensitive_profile_status);
+
+
+CREATE TABLE pc_person_sensitive_coverage (
+    id BIGSERIAL PRIMARY KEY,
+    person_sensitive_profile_id BIGINT NOT NULL REFERENCES pc_person_sensitive_profile(id),
+    coverage_type_code VARCHAR(50) NOT NULL,
+    provider_name VARCHAR(255),
+    policy_number VARCHAR(120),
+    coverage_status VARCHAR(50) NOT NULL,
+    effective_from DATE,
+    effective_to DATE,
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_person_sensitive_coverage_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE INDEX idx_pc_person_sensitive_coverage_profile
+ON pc_person_sensitive_coverage (person_sensitive_profile_id);
+
+CREATE INDEX idx_pc_person_sensitive_coverage_status
+ON pc_person_sensitive_coverage (coverage_status, coverage_type_code);
+
+
+CREATE TABLE pc_person_conflict (
+    id BIGSERIAL PRIMARY KEY,
+    left_person_id BIGINT NOT NULL REFERENCES pc_person(id),
+    right_person_id BIGINT REFERENCES pc_person(id),
+    conflict_type_code VARCHAR(100) NOT NULL,
+    conflict_status VARCHAR(50) NOT NULL,
+    conflict_notes TEXT,
+    detected_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    detected_by VARCHAR(100),
+    resolved_at TIMESTAMP,
+    resolved_by VARCHAR(100),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ck_pc_person_conflict_distinct_people CHECK (right_person_id IS NULL OR left_person_id <> right_person_id)
+);
+
+CREATE INDEX idx_pc_person_conflict_left
+ON pc_person_conflict (left_person_id);
+
+CREATE INDEX idx_pc_person_conflict_right
+ON pc_person_conflict (right_person_id);
+
+CREATE INDEX idx_pc_person_conflict_type_status
+ON pc_person_conflict (conflict_type_code, conflict_status);
+
+
+CREATE TABLE pc_person_audit_snapshot (
+    id BIGSERIAL PRIMARY KEY,
+    aggregate_id BIGINT NOT NULL,
+    aggregate_type VARCHAR(100) NOT NULL,
+    snapshot_json JSONB NOT NULL,
+    captured_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    captured_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_person_audit_snapshot_aggregate
+ON pc_person_audit_snapshot (aggregate_type, aggregate_id);
+
+CREATE INDEX idx_pc_person_audit_snapshot_captured_at
+ON pc_person_audit_snapshot (captured_at);
+
+
+CREATE TABLE pc_person_evidence_relation (
+    id BIGSERIAL PRIMARY KEY,
+    person_id BIGINT REFERENCES pc_person(id),
+    household_id BIGINT REFERENCES pc_household(id),
+    related_context_type VARCHAR(60) NOT NULL,
+    related_context_ref_id VARCHAR(120) NOT NULL,
+    evidence_role_code VARCHAR(60) NOT NULL,
+    asset_id BIGINT NOT NULL,
+    evidence_status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_person_evidence_relation_person
+ON pc_person_evidence_relation (person_id);
+
+CREATE INDEX idx_pc_person_evidence_relation_household
+ON pc_person_evidence_relation (household_id);
+
+CREATE INDEX idx_pc_person_evidence_relation_asset
+ON pc_person_evidence_relation (asset_id);
+
+
+-- ============================================================
+-- CAPITULO 1: GOBIERNO INSTITUCIONAL, TEMPORAL,
+-- ORGANIZACIONAL Y DOCUMENTAL MAESTRO
+-- ============================================================
+
+CREATE TABLE pc_org_group (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_code VARCHAR(40) NOT NULL UNIQUE,
+    legal_name VARCHAR(220) NOT NULL,
+    commercial_name VARCHAR(220),
+    tax_identifier VARCHAR(60),
+    country_code VARCHAR(10) NOT NULL DEFAULT 'BO',
+    default_currency_code VARCHAR(10) NOT NULL DEFAULT 'BOB',
+    default_timezone VARCHAR(80) NOT NULL DEFAULT 'America/La_Paz',
+    org_group_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE pc_education_unit (
+    id BIGSERIAL PRIMARY KEY,
+    org_group_id BIGINT NOT NULL REFERENCES pc_org_group(id),
+    unit_code VARCHAR(50) NOT NULL,
+    official_name VARCHAR(220) NOT NULL,
+    short_name VARCHAR(120),
+    ministry_rue_code VARCHAR(80),
+    administrative_dependency VARCHAR(40) NOT NULL,
+    institutional_type VARCHAR(40) NOT NULL,
+    service_type VARCHAR(40) NOT NULL,
+    unit_status VARCHAR(30) NOT NULL,
+    opened_on DATE,
+    closed_on DATE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_education_unit UNIQUE (org_group_id, unit_code),
+    CONSTRAINT ck_pc_education_unit_dates CHECK (closed_on IS NULL OR opened_on IS NULL OR closed_on >= opened_on)
+);
+
+CREATE TABLE pc_unit_site (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    site_code VARCHAR(50) NOT NULL,
+    site_name VARCHAR(180) NOT NULL,
+    address_line VARCHAR(250),
+    city_name VARCHAR(120),
+    department_name VARCHAR(120),
+    phone_number VARCHAR(50),
+    email_address VARCHAR(150),
+    is_main_site BOOLEAN NOT NULL DEFAULT FALSE,
+    site_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_unit_site UNIQUE (education_unit_id, site_code)
+);
+
+CREATE TABLE pc_organizational_unit (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    site_id BIGINT REFERENCES pc_unit_site(id),
+    parent_organizational_unit_id BIGINT REFERENCES pc_organizational_unit(id),
+    organizational_unit_code VARCHAR(60) NOT NULL,
+    organizational_unit_name VARCHAR(180) NOT NULL,
+    organizational_unit_type VARCHAR(50) NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    unit_scope_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_organizational_unit UNIQUE (education_unit_id, organizational_unit_code),
+    CONSTRAINT ck_pc_organizational_unit_display_order CHECK (display_order >= 0),
+    CONSTRAINT ck_pc_organizational_unit_not_self_parent CHECK (parent_organizational_unit_id IS NULL OR parent_organizational_unit_id <> id)
+);
+
+CREATE TABLE pc_education_level (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    level_code VARCHAR(40) NOT NULL,
+    level_name VARCHAR(120) NOT NULL,
+    official_reference_code VARCHAR(60),
+    level_sequence INTEGER NOT NULL,
+    level_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_education_level UNIQUE (education_unit_id, level_code),
+    CONSTRAINT ck_pc_education_level_sequence CHECK (level_sequence > 0)
+);
+
+CREATE TABLE pc_institutional_role_catalog (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    role_code VARCHAR(60) NOT NULL,
+    role_name VARCHAR(180) NOT NULL,
+    role_family VARCHAR(60) NOT NULL,
+    is_assignable_to_person BOOLEAN NOT NULL DEFAULT TRUE,
+    role_catalog_status VARCHAR(30) NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_institutional_role_catalog UNIQUE (education_unit_id, role_code),
+    CONSTRAINT ck_pc_institutional_role_catalog_display_order CHECK (display_order >= 0)
+);
+
+CREATE TABLE pc_appointment_catalog (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    appointment_code VARCHAR(60) NOT NULL,
+    appointment_name VARCHAR(180) NOT NULL,
+    organizational_unit_type_scope VARCHAR(60),
+    requires_document_support BOOLEAN NOT NULL DEFAULT FALSE,
+    appointment_catalog_status VARCHAR(30) NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_appointment_catalog UNIQUE (education_unit_id, appointment_code),
+    CONSTRAINT ck_pc_appointment_catalog_display_order CHECK (display_order >= 0)
+);
+
+CREATE TABLE pc_school_year (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    school_year_code VARCHAR(20) NOT NULL,
+    school_year_name VARCHAR(120) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    lifecycle_status VARCHAR(30) NOT NULL,
+    is_current_default BOOLEAN NOT NULL DEFAULT FALSE,
+    is_visible_for_query BOOLEAN NOT NULL DEFAULT TRUE,
+    is_editable BOOLEAN NOT NULL DEFAULT TRUE,
+    is_reportable BOOLEAN NOT NULL DEFAULT TRUE,
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+    context_priority INTEGER NOT NULL DEFAULT 0,
+    cloned_from_school_year_id BIGINT REFERENCES pc_school_year(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_school_year UNIQUE (education_unit_id, school_year_code),
+    CONSTRAINT ck_pc_school_year_dates CHECK (end_date >= start_date),
+    CONSTRAINT ck_pc_school_year_context_priority CHECK (context_priority >= 0),
+    CONSTRAINT ck_pc_school_year_not_self_clone CHECK (cloned_from_school_year_id IS NULL OR cloned_from_school_year_id <> id)
+);
+
+CREATE TABLE pc_school_year_context_rule (
+    id BIGSERIAL PRIMARY KEY,
+    school_year_id BIGINT NOT NULL REFERENCES pc_school_year(id),
+    module_code VARCHAR(60) NOT NULL,
+    resolution_mode VARCHAR(30) NOT NULL,
+    allows_historical_query BOOLEAN NOT NULL DEFAULT TRUE,
+    allows_operational_edit BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_school_year_context_rule UNIQUE (school_year_id, module_code)
+);
+
+CREATE TABLE pc_periodization_scheme (
+    id BIGSERIAL PRIMARY KEY,
+    school_year_id BIGINT NOT NULL REFERENCES pc_school_year(id),
+    scheme_code VARCHAR(50) NOT NULL,
+    scheme_name VARCHAR(180) NOT NULL,
+    scheme_type VARCHAR(30) NOT NULL,
+    default_period_count INTEGER NOT NULL,
+    scheme_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_periodization_scheme UNIQUE (school_year_id, scheme_code),
+    CONSTRAINT ck_pc_periodization_scheme_period_count CHECK (default_period_count > 0)
+);
+
+CREATE TABLE pc_periodization_level_rule (
+    id BIGSERIAL PRIMARY KEY,
+    periodization_scheme_id BIGINT NOT NULL REFERENCES pc_periodization_scheme(id),
+    education_level_id BIGINT NOT NULL REFERENCES pc_education_level(id),
+    period_count INTEGER NOT NULL,
+    level_rule_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_periodization_level_rule UNIQUE (periodization_scheme_id, education_level_id),
+    CONSTRAINT ck_pc_periodization_level_rule_count CHECK (period_count > 0)
+);
+
+CREATE TABLE pc_academic_period (
+    id BIGSERIAL PRIMARY KEY,
+    school_year_id BIGINT NOT NULL REFERENCES pc_school_year(id),
+    periodization_scheme_id BIGINT NOT NULL REFERENCES pc_periodization_scheme(id),
+    education_level_id BIGINT REFERENCES pc_education_level(id),
+    period_code VARCHAR(50) NOT NULL,
+    period_name VARCHAR(180) NOT NULL,
+    period_sequence INTEGER NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    period_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_academic_period UNIQUE (school_year_id, education_level_id, period_code),
+    CONSTRAINT ck_pc_academic_period_dates CHECK (end_date >= start_date),
+    CONSTRAINT ck_pc_academic_period_sequence CHECK (period_sequence > 0)
+);
+
+CREATE TABLE pc_period_operational_window (
+    id BIGSERIAL PRIMARY KEY,
+    academic_period_id BIGINT NOT NULL REFERENCES pc_academic_period(id),
+    window_code VARCHAR(60) NOT NULL,
+    window_type VARCHAR(40) NOT NULL,
+    window_name VARCHAR(180) NOT NULL,
+    opens_at TIMESTAMP NOT NULL,
+    closes_at TIMESTAMP NOT NULL,
+    allows_teacher_partial_save BOOLEAN NOT NULL DEFAULT TRUE,
+    allows_teacher_consolidation BOOLEAN NOT NULL DEFAULT FALSE,
+    blocks_grade_edit_after_close BOOLEAN NOT NULL DEFAULT TRUE,
+    window_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_period_operational_window UNIQUE (academic_period_id, window_code),
+    CONSTRAINT ck_pc_period_operational_window_dates CHECK (closes_at >= opens_at)
+);
+
+CREATE TABLE pc_school_calendar_event (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    school_year_id BIGINT NOT NULL REFERENCES pc_school_year(id),
+    event_code VARCHAR(60) NOT NULL,
+    event_name VARCHAR(220) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    event_scope VARCHAR(40) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    blocks_academic_activity BOOLEAN NOT NULL DEFAULT FALSE,
+    blocks_attendance BOOLEAN NOT NULL DEFAULT FALSE,
+    blocks_grade_capture BOOLEAN NOT NULL DEFAULT FALSE,
+    blocks_teaching_execution BOOLEAN NOT NULL DEFAULT FALSE,
+    blocks_financial_operation BOOLEAN NOT NULL DEFAULT FALSE,
+    calendar_event_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_school_calendar_event UNIQUE (school_year_id, event_code),
+    CONSTRAINT ck_pc_school_calendar_event_dates CHECK (end_date >= start_date)
+);
+
+CREATE TABLE pc_school_calendar_binding (
+    id BIGSERIAL PRIMARY KEY,
+    school_calendar_event_id BIGINT NOT NULL REFERENCES pc_school_calendar_event(id),
+    binding_type VARCHAR(40) NOT NULL,
+    binding_ref_id VARCHAR(120) NOT NULL,
+    binding_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_school_calendar_binding UNIQUE (school_calendar_event_id, binding_type, binding_ref_id)
+);
+
+CREATE TABLE pc_policy_registry (
+    id BIGSERIAL PRIMARY KEY,
+    school_year_id BIGINT NOT NULL REFERENCES pc_school_year(id),
+    policy_code VARCHAR(60) NOT NULL,
+    policy_name VARCHAR(220) NOT NULL,
+    policy_type VARCHAR(50) NOT NULL,
+    policy_version_label VARCHAR(50) NOT NULL,
+    mongo_document_ref VARCHAR(150) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    effective_from DATE,
+    effective_to DATE,
+    policy_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_policy_registry UNIQUE (school_year_id, policy_code, policy_version_label),
+    CONSTRAINT ck_pc_policy_registry_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
+);
+
+CREATE TABLE pc_integration_channel (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT NOT NULL REFERENCES pc_education_unit(id),
+    channel_code VARCHAR(60) NOT NULL,
+    channel_name VARCHAR(180) NOT NULL,
+    channel_type VARCHAR(50) NOT NULL,
+    provider_name VARCHAR(120),
+    is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    channel_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_integration_channel UNIQUE (education_unit_id, channel_code)
+);
+
+CREATE TABLE pc_school_year_rollover_policy (
+    id BIGSERIAL PRIMARY KEY,
+    school_year_id BIGINT NOT NULL REFERENCES pc_school_year(id),
+    policy_code VARCHAR(60) NOT NULL,
+    auto_promote_approved_students BOOLEAN NOT NULL DEFAULT TRUE,
+    carry_forward_family_links BOOLEAN NOT NULL DEFAULT TRUE,
+    carry_forward_financial_links BOOLEAN NOT NULL DEFAULT TRUE,
+    carry_forward_pickup_rules BOOLEAN NOT NULL DEFAULT FALSE,
+    default_target_shift_mode VARCHAR(30) NOT NULL,
+    rollover_policy_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT uk_pc_school_year_rollover_policy UNIQUE (school_year_id, policy_code)
+);
+
+CREATE TABLE pc_governance_document_binding (
+    id BIGSERIAL PRIMARY KEY,
+    digital_asset_id BIGINT NOT NULL,
+    governance_context_type VARCHAR(60) NOT NULL,
+    governance_context_ref_id VARCHAR(120) NOT NULL,
+    document_role VARCHAR(60) NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    binding_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE pc_governance_metric_registry (
+    id BIGSERIAL PRIMARY KEY,
+    education_unit_id BIGINT REFERENCES pc_education_unit(id),
+    school_year_id BIGINT REFERENCES pc_school_year(id),
+    metric_code VARCHAR(80) NOT NULL,
+    metric_name VARCHAR(180) NOT NULL,
+    metric_scope VARCHAR(40) NOT NULL,
+    metric_value NUMERIC(18,4),
+    measured_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    metric_status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(100),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(100),
+    version BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_pc_education_unit_org_group
+ON pc_education_unit (org_group_id);
+
+CREATE INDEX idx_pc_unit_site_education_unit
+ON pc_unit_site (education_unit_id);
+
+CREATE INDEX idx_pc_unit_site_main_status
+ON pc_unit_site (education_unit_id, is_main_site, site_status);
+
+CREATE INDEX idx_pc_organizational_unit_education_unit
+ON pc_organizational_unit (education_unit_id);
+
+CREATE INDEX idx_pc_organizational_unit_site
+ON pc_organizational_unit (site_id);
+
+CREATE INDEX idx_pc_organizational_unit_parent
+ON pc_organizational_unit (parent_organizational_unit_id);
+
+CREATE INDEX idx_pc_organizational_unit_type_status
+ON pc_organizational_unit (organizational_unit_type, unit_scope_status);
+
+CREATE INDEX idx_pc_education_level_education_unit
+ON pc_education_level (education_unit_id);
+
+CREATE INDEX idx_pc_education_level_sequence
+ON pc_education_level (education_unit_id, level_sequence);
+
+CREATE INDEX idx_pc_institutional_role_catalog_lookup
+ON pc_institutional_role_catalog (education_unit_id, role_family, role_catalog_status, is_assignable_to_person);
+
+CREATE INDEX idx_pc_appointment_catalog_lookup
+ON pc_appointment_catalog (education_unit_id, organizational_unit_type_scope, appointment_catalog_status);
+
+CREATE INDEX idx_pc_school_year_education_unit
+ON pc_school_year (education_unit_id);
+
+CREATE INDEX idx_pc_school_year_status
+ON pc_school_year (education_unit_id, lifecycle_status);
+
+CREATE INDEX idx_pc_school_year_visibility
+ON pc_school_year (education_unit_id, is_visible_for_query, is_reportable, is_archived);
+
+CREATE UNIQUE INDEX uk_pc_school_year_current_default
+ON pc_school_year (education_unit_id)
+WHERE is_current_default = TRUE;
+
+CREATE INDEX idx_pc_school_year_context_rule_school_year
+ON pc_school_year_context_rule (school_year_id);
+
+CREATE INDEX idx_pc_school_year_context_rule_module
+ON pc_school_year_context_rule (module_code, status);
+
+CREATE INDEX idx_pc_periodization_scheme_school_year
+ON pc_periodization_scheme (school_year_id);
+
+CREATE INDEX idx_pc_periodization_scheme_type_status
+ON pc_periodization_scheme (scheme_type, scheme_status);
+
+CREATE INDEX idx_pc_periodization_level_rule_scheme
+ON pc_periodization_level_rule (periodization_scheme_id);
+
+CREATE INDEX idx_pc_periodization_level_rule_level
+ON pc_periodization_level_rule (education_level_id);
+
+CREATE INDEX idx_pc_academic_period_school_year
+ON pc_academic_period (school_year_id);
+
+CREATE INDEX idx_pc_academic_period_scheme
+ON pc_academic_period (periodization_scheme_id);
+
+CREATE INDEX idx_pc_academic_period_level
+ON pc_academic_period (education_level_id);
+
+CREATE INDEX idx_pc_academic_period_dates
+ON pc_academic_period (school_year_id, start_date, end_date);
+
+CREATE UNIQUE INDEX uk_pc_academic_period_general
+ON pc_academic_period (school_year_id, period_code)
+WHERE education_level_id IS NULL;
+
+CREATE INDEX idx_pc_period_operational_window_period
+ON pc_period_operational_window (academic_period_id);
+
+CREATE INDEX idx_pc_period_operational_window_dates
+ON pc_period_operational_window (academic_period_id, opens_at, closes_at);
+
+CREATE INDEX idx_pc_period_operational_window_type_status
+ON pc_period_operational_window (window_type, window_status);
+
+CREATE INDEX idx_pc_school_calendar_event_education_unit
+ON pc_school_calendar_event (education_unit_id);
+
+CREATE INDEX idx_pc_school_calendar_event_school_year
+ON pc_school_calendar_event (school_year_id);
+
+CREATE INDEX idx_pc_school_calendar_event_dates
+ON pc_school_calendar_event (school_year_id, start_date, end_date);
+
+CREATE INDEX idx_pc_school_calendar_event_type_status
+ON pc_school_calendar_event (event_type, event_scope, calendar_event_status);
+
+CREATE INDEX idx_pc_school_calendar_binding_event
+ON pc_school_calendar_binding (school_calendar_event_id);
+
+CREATE INDEX idx_pc_school_calendar_binding_context
+ON pc_school_calendar_binding (binding_type, binding_ref_id);
+
+CREATE INDEX idx_pc_policy_registry_school_year
+ON pc_policy_registry (school_year_id);
+
+CREATE INDEX idx_pc_policy_registry_lookup
+ON pc_policy_registry (school_year_id, policy_code, policy_status, effective_from, effective_to);
+
+CREATE UNIQUE INDEX uk_pc_policy_registry_active
+ON pc_policy_registry (school_year_id, policy_code)
+WHERE is_active = TRUE;
+
+CREATE INDEX idx_pc_integration_channel_education_unit
+ON pc_integration_channel (education_unit_id);
+
+CREATE INDEX idx_pc_integration_channel_lookup
+ON pc_integration_channel (education_unit_id, channel_type, is_enabled, channel_status);
+
+CREATE INDEX idx_pc_school_year_rollover_policy_school_year
+ON pc_school_year_rollover_policy (school_year_id);
+
+CREATE INDEX idx_pc_school_year_rollover_policy_status
+ON pc_school_year_rollover_policy (rollover_policy_status);
+
+CREATE INDEX idx_pc_governance_document_binding_asset
+ON pc_governance_document_binding (digital_asset_id);
+
+CREATE INDEX idx_pc_governance_document_binding_context
+ON pc_governance_document_binding (governance_context_type, governance_context_ref_id);
+
+CREATE INDEX idx_pc_governance_document_binding_role_status
+ON pc_governance_document_binding (document_role, binding_status);
+
+CREATE UNIQUE INDEX uk_pc_governance_document_primary
+ON pc_governance_document_binding (governance_context_type, governance_context_ref_id)
+WHERE is_primary = TRUE;
+
+CREATE INDEX idx_pc_governance_metric_registry_education_unit
+ON pc_governance_metric_registry (education_unit_id);
+
+CREATE INDEX idx_pc_governance_metric_registry_school_year
+ON pc_governance_metric_registry (school_year_id);
+
+CREATE INDEX idx_pc_governance_metric_registry_lookup
+ON pc_governance_metric_registry (metric_code, metric_scope, metric_status, measured_at);

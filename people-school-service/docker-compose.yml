@@ -1,0 +1,39 @@
+services:
+  people-school-service:
+    build:
+      context: ..
+      dockerfile: people-school-service/Dockerfile
+    container_name: people-school-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      IAM_JWT_SECRET: dev-secret-key-change-me-please-32-bytes-minimum
+      IAM_JWT_ISSUER: iam-service
+      PEOPLE_SCHOOL_REDIS_HOST: host.docker.internal
+      PEOPLE_SCHOOL_REDIS_PORT: 6379
+    ports:
+      - "8082:8080"
+    depends_on:
+      people-school-postgres:
+        condition: service_healthy
+
+  people-school-postgres:
+    image: postgres:16-alpine
+    container_name: people-school-postgres
+    environment:
+      POSTGRES_DB: person_registry
+      POSTGRES_USER: person_registry
+      POSTGRES_PASSWORD: person_registry
+    ports:
+      - "5434:5432"
+    volumes:
+      - people-school-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U person_registry -d person_registry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  people-school-postgres-data:
+    name: person-registry-service_person-registry-postgres-data
+    external: true
