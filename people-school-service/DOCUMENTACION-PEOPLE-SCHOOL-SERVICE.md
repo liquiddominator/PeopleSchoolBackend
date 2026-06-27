@@ -1,5 +1,9 @@
 # People School Service
 
+Documentacion completa: [docs/DOCUMENTACION-PEOPLE-SCHOOL.md](docs/DOCUMENTACION-PEOPLE-SCHOOL.md).
+
+Guia de levantamiento: [docs/operations/LEVANTAMIENTO-PEOPLE-SCHOOL-SERVICE.md](docs/operations/LEVANTAMIENTO-PEOPLE-SCHOOL-SERVICE.md).
+
 Modular hexagonal monolith for the four foundational PeopleCole chapters.
 
 The deployable contains four isolated business modules:

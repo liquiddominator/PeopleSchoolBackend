@@ -48,5 +48,5 @@ people-school-service
 |-- Dockerfile
 |-- docker-compose.yml
 |-- pom.xml
-`-- README.md
+`-- DOCUMENTACION-PEOPLE-SCHOOL-SERVICE.md
 ```

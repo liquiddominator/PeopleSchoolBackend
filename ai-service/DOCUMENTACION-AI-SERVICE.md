@@ -1,5 +1,7 @@
 # AI Service
 
+Guia de ejecucion: [docs/LEVANTAMIENTO-AI-SERVICE.md](docs/LEVANTAMIENTO-AI-SERVICE.md).
+
 Multi-módulo Maven (Java 21, Spring Boot 3.5.x) con **Clean Architecture** y **Hexagonal** estricta. Spring AI 1.1.2. Mongo y Redis son **opcionales** en ai-infrastructure; la app arranca sin ellos.
 
 ## Build y tests

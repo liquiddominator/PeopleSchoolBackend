@@ -1,0 +1,806 @@
+-- PEOPLE SCHOOL SERVICE - POSTGRESQL CONSOLIDATED SCHEMA
+-- Generated from the Flyway migrations in src/main/resources/db/migration.
+-- Includes chapters 0, 1, 2 and 3.
+-- Source of truth: individual Flyway migrations V1 through V31.
+-- Generated: 2026-06-27
+-- Do not execute on a database already managed by Flyway.
+
+-- ============================================================================
+-- MIGRATION: V1__create_person.sql
+-- ============================================================================
+
+CREATE TABLE pc_person (
+    id                     BIGSERIAL PRIMARY KEY,
+    person_code            VARCHAR(50)  NOT NULL,
+    person_type_code       VARCHAR(30)  NOT NULL,
+    core_status            VARCHAR(20)  NOT NULL,
+    primary_photo_asset_id VARCHAR(255),
+    tenant_id              VARCHAR(36)  NOT NULL,
+    version                BIGINT       NOT NULL DEFAULT 0,
+    created_at             TIMESTAMP,
+    created_by             VARCHAR(100),
+    last_modified_at       TIMESTAMP,
+    last_modified_by       VARCHAR(100),
+    CONSTRAINT uq_person_code_tenant UNIQUE (person_code, tenant_id)
+);
+
+CREATE INDEX idx_person_tenant_id      ON pc_person (tenant_id);
+CREATE INDEX idx_person_type_code      ON pc_person (person_type_code);
+CREATE INDEX idx_person_core_status    ON pc_person (core_status);
+CREATE INDEX idx_person_code           ON pc_person (person_code);
+
+-- ============================================================================
+-- MIGRATION: V2__create_household.sql
+-- ============================================================================
+
+CREATE TABLE pc_household (
+    id                         BIGSERIAL PRIMARY KEY,
+    household_code             VARCHAR(50)  NOT NULL,
+    household_name             VARCHAR(255) NOT NULL,
+    household_type_code        VARCHAR(30)  NOT NULL,
+    household_status           VARCHAR(20)  NOT NULL,
+    primary_billing_address_id BIGINT,
+    tenant_id                  VARCHAR(36)  NOT NULL,
+    version                    BIGINT       NOT NULL DEFAULT 0,
+    created_at                 TIMESTAMP,
+    created_by                 VARCHAR(100),
+    last_modified_at           TIMESTAMP,
+    last_modified_by           VARCHAR(100),
+    CONSTRAINT uq_household_code_tenant UNIQUE (household_code, tenant_id)
+);
+
+CREATE INDEX idx_household_tenant_id   ON pc_household (tenant_id);
+CREATE INDEX idx_household_status      ON pc_household (household_status);
+CREATE INDEX idx_household_type_code   ON pc_household (household_type_code);
+
+-- ============================================================================
+-- MIGRATION: V3__create_household_membership.sql
+-- ============================================================================
+
+CREATE TABLE pc_household_membership (
+    id                       BIGSERIAL PRIMARY KEY,
+    household_id             BIGINT      NOT NULL REFERENCES pc_household(id),
+    person_id                BIGINT      NOT NULL REFERENCES pc_person(id),
+    membership_role_code     VARCHAR(30) NOT NULL,
+    membership_status        VARCHAR(20) NOT NULL,
+    effective_from           DATE        NOT NULL,
+    effective_to             DATE,
+    is_primary_guardian_group BOOLEAN    NOT NULL DEFAULT FALSE,
+    tenant_id                VARCHAR(36) NOT NULL,
+    version                  BIGINT      NOT NULL DEFAULT 0,
+    created_at               TIMESTAMP,
+    created_by               VARCHAR(100),
+    last_modified_at         TIMESTAMP,
+    last_modified_by         VARCHAR(100)
+);
+
+-- Partial unique index: only one ACTIVE membership per person per household
+CREATE UNIQUE INDEX uq_active_membership
+    ON pc_household_membership (household_id, person_id)
+    WHERE membership_status = 'ACTIVE';
+
+CREATE INDEX idx_membership_household  ON pc_household_membership (household_id);
+CREATE INDEX idx_membership_person     ON pc_household_membership (person_id);
+CREATE INDEX idx_membership_tenant     ON pc_household_membership (tenant_id);
+CREATE INDEX idx_membership_status     ON pc_household_membership (membership_status);
+
+-- ============================================================================
+-- MIGRATION: V4__create_education_unit.sql
+-- ============================================================================
+
+CREATE TABLE pc_education_unit (
+    id                         BIGSERIAL    PRIMARY KEY,
+    unit_code                  VARCHAR(50)  NOT NULL,
+    official_name              VARCHAR(220) NOT NULL,
+    short_name                 VARCHAR(120),
+    ministry_rue_code          VARCHAR(80),
+    administrative_dependency  VARCHAR(40)  NOT NULL DEFAULT 'PRIVADO',
+    institutional_type         VARCHAR(40)  NOT NULL DEFAULT 'PRIVADO',
+    service_type               VARCHAR(40)  NOT NULL DEFAULT 'PRESENCIAL',
+    phone_number               VARCHAR(50),
+    email_address              VARCHAR(150),
+    address_line               VARCHAR(250),
+    unit_status                VARCHAR(30)  NOT NULL,
+    tenant_id                  VARCHAR(36)  NOT NULL,
+    version                    BIGINT       NOT NULL DEFAULT 0,
+    created_at                 TIMESTAMP,
+    created_by                 VARCHAR(100),
+    last_modified_at           TIMESTAMP,
+    last_modified_by           VARCHAR(100),
+    CONSTRAINT uq_education_unit_code_tenant UNIQUE (unit_code, tenant_id)
+);
+
+CREATE INDEX idx_education_unit_tenant      ON pc_education_unit (tenant_id);
+CREATE INDEX idx_education_unit_status      ON pc_education_unit (unit_status);
+
+-- ============================================================================
+-- MIGRATION: V5__create_school_year.sql
+-- ============================================================================
+
+CREATE TABLE pc_school_year (
+    id                       BIGSERIAL    PRIMARY KEY,
+    education_unit_id        BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    school_year_code         VARCHAR(20)  NOT NULL,
+    school_year_name         VARCHAR(120) NOT NULL,
+    start_date               DATE         NOT NULL,
+    end_date                 DATE         NOT NULL,
+    lifecycle_status         VARCHAR(30)  NOT NULL,
+    is_current_default       BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_visible_for_query     BOOLEAN      NOT NULL DEFAULT TRUE,
+    is_editable              BOOLEAN      NOT NULL DEFAULT TRUE,
+    is_reportable            BOOLEAN      NOT NULL DEFAULT TRUE,
+    is_archived              BOOLEAN      NOT NULL DEFAULT FALSE,
+    context_priority         INTEGER      NOT NULL DEFAULT 0,
+    tenant_id                VARCHAR(36)  NOT NULL,
+    version                  BIGINT       NOT NULL DEFAULT 0,
+    created_at               TIMESTAMP,
+    created_by               VARCHAR(100),
+    last_modified_at         TIMESTAMP,
+    last_modified_by         VARCHAR(100),
+    CONSTRAINT uq_school_year_code_tenant UNIQUE (school_year_code, tenant_id),
+    CONSTRAINT ck_school_year_dates CHECK (end_date >= start_date),
+    CONSTRAINT ck_school_year_priority CHECK (context_priority >= 0)
+);
+
+CREATE INDEX idx_school_year_tenant             ON pc_school_year (tenant_id);
+CREATE INDEX idx_school_year_status             ON pc_school_year (lifecycle_status);
+CREATE INDEX idx_school_year_education_unit     ON pc_school_year (education_unit_id);
+CREATE UNIQUE INDEX uk_school_year_current_default ON pc_school_year (tenant_id) WHERE is_current_default = TRUE;
+
+-- ============================================================================
+-- MIGRATION: V6__create_education_level.sql
+-- ============================================================================
+
+CREATE TABLE pc_education_level (
+    id                      BIGSERIAL    PRIMARY KEY,
+    education_unit_id       BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    level_code              VARCHAR(40)  NOT NULL,
+    level_name              VARCHAR(120) NOT NULL,
+    official_reference_code VARCHAR(60),
+    level_sequence          INTEGER      NOT NULL,
+    level_status            VARCHAR(30)  NOT NULL,
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100),
+    CONSTRAINT uq_education_level_code_tenant UNIQUE (level_code, tenant_id),
+    CONSTRAINT ck_education_level_sequence CHECK (level_sequence > 0)
+);
+
+CREATE INDEX idx_education_level_tenant          ON pc_education_level (tenant_id);
+CREATE INDEX idx_education_level_education_unit  ON pc_education_level (education_unit_id);
+CREATE INDEX idx_education_level_sequence        ON pc_education_level (tenant_id, level_sequence);
+
+-- ============================================================================
+-- MIGRATION: V7__create_institutional_role_catalog.sql
+-- ============================================================================
+
+CREATE TABLE pc_institutional_role_catalog (
+    id                      BIGSERIAL    PRIMARY KEY,
+    education_unit_id       BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    role_code               VARCHAR(60)  NOT NULL,
+    role_name               VARCHAR(180) NOT NULL,
+    role_family             VARCHAR(60)  NOT NULL,
+    is_assignable_to_person BOOLEAN      NOT NULL DEFAULT TRUE,
+    role_catalog_status     VARCHAR(30)  NOT NULL,
+    display_order           INTEGER      NOT NULL DEFAULT 0,
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100),
+    CONSTRAINT uq_role_catalog_code_tenant UNIQUE (role_code, tenant_id),
+    CONSTRAINT ck_role_catalog_display_order CHECK (display_order >= 0)
+);
+
+CREATE INDEX idx_role_catalog_tenant          ON pc_institutional_role_catalog (tenant_id);
+CREATE INDEX idx_role_catalog_education_unit  ON pc_institutional_role_catalog (education_unit_id);
+CREATE INDEX idx_role_catalog_family_status   ON pc_institutional_role_catalog (role_family, role_catalog_status);
+
+-- ============================================================================
+-- MIGRATION: V8__create_appointment_catalog.sql
+-- ============================================================================
+
+CREATE TABLE pc_appointment_catalog (
+    id                           BIGSERIAL    PRIMARY KEY,
+    education_unit_id            BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    appointment_code             VARCHAR(60)  NOT NULL,
+    appointment_name             VARCHAR(180) NOT NULL,
+    org_unit_type_scope          VARCHAR(60),
+    requires_document_support    BOOLEAN      NOT NULL DEFAULT FALSE,
+    appointment_catalog_status   VARCHAR(30)  NOT NULL,
+    display_order                INTEGER      NOT NULL DEFAULT 0,
+    tenant_id                    VARCHAR(36)  NOT NULL,
+    version                      BIGINT       NOT NULL DEFAULT 0,
+    created_at                   TIMESTAMP,
+    created_by                   VARCHAR(100),
+    last_modified_at             TIMESTAMP,
+    last_modified_by             VARCHAR(100),
+    CONSTRAINT uq_appointment_code_tenant UNIQUE (appointment_code, tenant_id),
+    CONSTRAINT ck_appointment_display_order CHECK (display_order >= 0)
+);
+
+CREATE INDEX idx_appointment_catalog_tenant          ON pc_appointment_catalog (tenant_id);
+CREATE INDEX idx_appointment_catalog_education_unit  ON pc_appointment_catalog (education_unit_id);
+CREATE INDEX idx_appointment_catalog_status          ON pc_appointment_catalog (appointment_catalog_status);
+
+-- ============================================================================
+-- MIGRATION: V9__create_organizational_unit.sql
+-- ============================================================================
+
+CREATE TABLE pc_organizational_unit (
+    id                           BIGSERIAL    PRIMARY KEY,
+    education_unit_id            BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    parent_organizational_unit_id BIGINT      REFERENCES pc_organizational_unit(id),
+    org_unit_code                VARCHAR(60)  NOT NULL,
+    org_unit_name                VARCHAR(180) NOT NULL,
+    org_unit_type                VARCHAR(50)  NOT NULL,
+    display_order                INTEGER      NOT NULL DEFAULT 0,
+    unit_scope_status            VARCHAR(30)  NOT NULL,
+    tenant_id                    VARCHAR(36)  NOT NULL,
+    version                      BIGINT       NOT NULL DEFAULT 0,
+    created_at                   TIMESTAMP,
+    created_by                   VARCHAR(100),
+    last_modified_at             TIMESTAMP,
+    last_modified_by             VARCHAR(100),
+    CONSTRAINT uq_org_unit_code_tenant UNIQUE (org_unit_code, tenant_id),
+    CONSTRAINT ck_org_unit_display_order CHECK (display_order >= 0),
+    CONSTRAINT ck_org_unit_not_self_parent CHECK (parent_organizational_unit_id IS NULL OR parent_organizational_unit_id <> id)
+);
+
+CREATE INDEX idx_org_unit_tenant          ON pc_organizational_unit (tenant_id);
+CREATE INDEX idx_org_unit_education_unit  ON pc_organizational_unit (education_unit_id);
+CREATE INDEX idx_org_unit_parent          ON pc_organizational_unit (parent_organizational_unit_id);
+CREATE INDEX idx_org_unit_type_status     ON pc_organizational_unit (org_unit_type, unit_scope_status);
+
+-- ============================================================================
+-- MIGRATION: V10__create_person_conflict.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_conflict (
+    id               BIGSERIAL    PRIMARY KEY,
+    conflict_type    VARCHAR(30)  NOT NULL,
+    conflict_status  VARCHAR(20)  NOT NULL,
+    person_a_id      BIGINT       NOT NULL,
+    person_b_id      BIGINT,
+    description      VARCHAR(400),
+    score            INTEGER,
+    tenant_id        VARCHAR(36)  NOT NULL,
+    version          BIGINT       NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP,
+    created_by       VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    CONSTRAINT fk_conflict_person_a FOREIGN KEY (person_a_id) REFERENCES pc_person (id),
+    CONSTRAINT fk_conflict_person_b FOREIGN KEY (person_b_id) REFERENCES pc_person (id)
+);
+
+CREATE INDEX idx_conflict_tenant_id     ON pc_person_conflict (tenant_id);
+CREATE INDEX idx_conflict_status        ON pc_person_conflict (conflict_status);
+CREATE INDEX idx_conflict_person_a      ON pc_person_conflict (person_a_id);
+
+-- ============================================================================
+-- MIGRATION: V11__create_person_legal_identity.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_legal_identity (
+    id               BIGSERIAL    PRIMARY KEY,
+    person_id        BIGINT       NOT NULL,
+    tipo             VARCHAR(20)  NOT NULL,
+    numero           VARCHAR(30)  NOT NULL,
+    pais_emisor      VARCHAR(60)  NOT NULL,
+    es_principal     BOOLEAN      NOT NULL DEFAULT FALSE,
+    estado           VARCHAR(20)  NOT NULL,
+    tenant_id        VARCHAR(36)  NOT NULL,
+    version          BIGINT       NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP,
+    created_by       VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    CONSTRAINT fk_legal_identity_person FOREIGN KEY (person_id) REFERENCES pc_person (id)
+);
+
+CREATE INDEX idx_legal_identity_person_id ON pc_person_legal_identity (person_id);
+CREATE INDEX idx_legal_identity_tenant_id ON pc_person_legal_identity (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V12__create_person_contact.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_contact (
+    id               BIGSERIAL    PRIMARY KEY,
+    person_id        BIGINT       NOT NULL,
+    tipo             VARCHAR(20)  NOT NULL,
+    valor            VARCHAR(120) NOT NULL,
+    uso              VARCHAR(20)  NOT NULL,
+    es_principal     BOOLEAN      NOT NULL DEFAULT FALSE,
+    tenant_id        VARCHAR(36)  NOT NULL,
+    version          BIGINT       NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP,
+    created_by       VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    CONSTRAINT fk_contact_person FOREIGN KEY (person_id) REFERENCES pc_person (id)
+);
+
+CREATE INDEX idx_contact_person_id ON pc_person_contact (person_id);
+CREATE INDEX idx_contact_tenant_id ON pc_person_contact (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V13__create_person_address.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_address (
+    id               BIGSERIAL    PRIMARY KEY,
+    person_id        BIGINT       NOT NULL,
+    pais             VARCHAR(60)  NOT NULL,
+    ciudad           VARCHAR(80)  NOT NULL,
+    linea1           VARCHAR(200) NOT NULL,
+    linea2           VARCHAR(200),
+    es_principal     BOOLEAN      NOT NULL DEFAULT FALSE,
+    tenant_id        VARCHAR(36)  NOT NULL,
+    version          BIGINT       NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP,
+    created_by       VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100),
+    CONSTRAINT fk_address_person FOREIGN KEY (person_id) REFERENCES pc_person (id)
+);
+
+CREATE INDEX idx_address_person_id ON pc_person_address (person_id);
+CREATE INDEX idx_address_tenant_id ON pc_person_address (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V14__add_person_name.sql
+-- ============================================================================
+
+ALTER TABLE pc_person
+    ADD COLUMN nombres   VARCHAR(120),
+    ADD COLUMN apellidos VARCHAR(120);
+
+-- ============================================================================
+-- MIGRATION: V15__create_school_regulation.sql
+-- ============================================================================
+
+CREATE TABLE pc_school_regulation (
+    id                              BIGSERIAL    PRIMARY KEY,
+    education_unit_id               BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    regulation_code                 VARCHAR(100) NOT NULL,
+    title                           VARCHAR(255) NOT NULL,
+    description                     TEXT,
+    regulation_type_code            VARCHAR(50)  NOT NULL,
+    issuing_authority_type_code     VARCHAR(50),
+    criticality_level               VARCHAR(50)  NOT NULL,
+    regulation_status               VARCHAR(50)  NOT NULL,
+    tenant_id                       VARCHAR(36)  NOT NULL,
+    version                         BIGINT       NOT NULL DEFAULT 0,
+    created_at                      TIMESTAMP,
+    created_by                      VARCHAR(100),
+    last_modified_at                TIMESTAMP,
+    last_modified_by                VARCHAR(100),
+    CONSTRAINT uq_school_regulation_code_tenant UNIQUE (regulation_code, tenant_id)
+);
+
+CREATE INDEX idx_school_regulation_tenant        ON pc_school_regulation (tenant_id);
+CREATE INDEX idx_school_regulation_education_unit ON pc_school_regulation (education_unit_id);
+CREATE INDEX idx_school_regulation_status        ON pc_school_regulation (regulation_status);
+CREATE INDEX idx_school_regulation_type          ON pc_school_regulation (regulation_type_code);
+
+-- ============================================================================
+-- MIGRATION: V16__create_student_profile.sql
+-- ============================================================================
+
+CREATE TABLE pc_student_profile (
+    id                          BIGSERIAL   PRIMARY KEY,
+    person_id                   BIGINT      NOT NULL REFERENCES pc_person(id),
+    student_code                VARCHAR(80) NOT NULL,
+    student_status              VARCHAR(40) NOT NULL,
+    school_entry_date           DATE,
+    first_school_year_id        BIGINT      REFERENCES pc_school_year(id),
+    current_operational_status  VARCHAR(40) NOT NULL,
+    tenant_id                   VARCHAR(36) NOT NULL,
+    version                     BIGINT      NOT NULL DEFAULT 0,
+    created_at                  TIMESTAMP,
+    created_by                  VARCHAR(100),
+    last_modified_at            TIMESTAMP,
+    last_modified_by            VARCHAR(100),
+    CONSTRAINT uq_student_profile_person_tenant UNIQUE (person_id, tenant_id),
+    CONSTRAINT uq_student_profile_code_tenant   UNIQUE (student_code, tenant_id)
+);
+
+CREATE INDEX idx_student_profile_tenant        ON pc_student_profile (tenant_id);
+CREATE INDEX idx_student_profile_person        ON pc_student_profile (person_id);
+CREATE INDEX idx_student_profile_status        ON pc_student_profile (student_status);
+CREATE INDEX idx_student_profile_school_year   ON pc_student_profile (first_school_year_id);
+
+-- ============================================================================
+-- MIGRATION: V17__create_guardian_relationship.sql
+-- ============================================================================
+
+CREATE TABLE pc_guardian_relationship (
+    id                      BIGSERIAL    PRIMARY KEY,
+    student_person_id       BIGINT       NOT NULL,
+    guardian_person_id      BIGINT       NOT NULL,
+    household_id            BIGINT,
+    guardian_type_code      VARCHAR(50)  NOT NULL,
+    legal_authority_status  VARCHAR(50)  NOT NULL,
+    school_authority_status VARCHAR(50)  NOT NULL,
+    effective_from          DATE,
+    effective_to            DATE,
+    notes                   TEXT,
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100),
+    CONSTRAINT fk_guardian_student  FOREIGN KEY (student_person_id)  REFERENCES pc_person(id),
+    CONSTRAINT fk_guardian_guardian FOREIGN KEY (guardian_person_id) REFERENCES pc_person(id),
+    CONSTRAINT fk_guardian_household FOREIGN KEY (household_id)      REFERENCES pc_household(id)
+);
+
+CREATE INDEX idx_guardian_rel_student  ON pc_guardian_relationship (student_person_id);
+CREATE INDEX idx_guardian_rel_guardian ON pc_guardian_relationship (guardian_person_id);
+CREATE INDEX idx_guardian_rel_tenant   ON pc_guardian_relationship (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V18__create_emergency_contact.sql
+-- ============================================================================
+
+CREATE TABLE pc_emergency_contact (
+    id                   BIGSERIAL    PRIMARY KEY,
+    person_id            BIGINT       NOT NULL,
+    contact_person_id    BIGINT,
+    emergency_priority   INTEGER      NOT NULL DEFAULT 1,
+    relationship_label   VARCHAR(100),
+    emergency_status     VARCHAR(50)  NOT NULL,
+    tenant_id            VARCHAR(36)  NOT NULL,
+    version              BIGINT       NOT NULL DEFAULT 0,
+    created_at           TIMESTAMP,
+    created_by           VARCHAR(100),
+    last_modified_at     TIMESTAMP,
+    last_modified_by     VARCHAR(100),
+    CONSTRAINT fk_emergency_person         FOREIGN KEY (person_id)         REFERENCES pc_person(id),
+    CONSTRAINT fk_emergency_contact_person FOREIGN KEY (contact_person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_emergency_contact_person   ON pc_emergency_contact (person_id);
+CREATE INDEX idx_emergency_contact_priority ON pc_emergency_contact (emergency_priority, emergency_status);
+CREATE INDEX idx_emergency_contact_tenant   ON pc_emergency_contact (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V19__create_financial_responsible.sql
+-- ============================================================================
+
+CREATE TABLE pc_financial_responsible_relationship (
+    id                      BIGSERIAL    PRIMARY KEY,
+    beneficiary_person_id   BIGINT       NOT NULL,
+    responsible_person_id   BIGINT       NOT NULL,
+    household_id            BIGINT,
+    responsibility_status   VARCHAR(50)  NOT NULL,
+    effective_from          DATE,
+    effective_to            DATE,
+    notes                   TEXT,
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100),
+    CONSTRAINT fk_fin_resp_beneficiary  FOREIGN KEY (beneficiary_person_id)  REFERENCES pc_person(id),
+    CONSTRAINT fk_fin_resp_responsible  FOREIGN KEY (responsible_person_id)  REFERENCES pc_person(id),
+    CONSTRAINT fk_fin_resp_household    FOREIGN KEY (household_id)           REFERENCES pc_household(id)
+);
+
+CREATE INDEX idx_fin_resp_beneficiary ON pc_financial_responsible_relationship (beneficiary_person_id);
+CREATE INDEX idx_fin_resp_responsible ON pc_financial_responsible_relationship (responsible_person_id);
+CREATE INDEX idx_fin_resp_tenant      ON pc_financial_responsible_relationship (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V20__create_pickup_authorization.sql
+-- ============================================================================
+
+CREATE TABLE pc_pickup_authorization (
+    id                       BIGSERIAL    PRIMARY KEY,
+    student_person_id        BIGINT       NOT NULL,
+    authorized_person_id     BIGINT       NOT NULL,
+    authorization_status     VARCHAR(50)  NOT NULL,
+    effective_from           DATE,
+    effective_to             DATE,
+    authorization_scope_code VARCHAR(50),
+    notes                    TEXT,
+    tenant_id                VARCHAR(36)  NOT NULL,
+    version                  BIGINT       NOT NULL DEFAULT 0,
+    created_at               TIMESTAMP,
+    created_by               VARCHAR(100),
+    last_modified_at         TIMESTAMP,
+    last_modified_by         VARCHAR(100),
+    CONSTRAINT fk_pickup_student    FOREIGN KEY (student_person_id)    REFERENCES pc_person(id),
+    CONSTRAINT fk_pickup_authorized FOREIGN KEY (authorized_person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_pickup_auth_student    ON pc_pickup_authorization (student_person_id);
+CREATE INDEX idx_pickup_auth_authorized ON pc_pickup_authorization (authorized_person_id);
+CREATE INDEX idx_pickup_auth_tenant     ON pc_pickup_authorization (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V21__create_institutional_role_assignment.sql
+-- ============================================================================
+
+CREATE TABLE pc_institutional_role_assignment (
+    id                     BIGSERIAL    PRIMARY KEY,
+    person_id              BIGINT       NOT NULL,
+    role_code              VARCHAR(50)  NOT NULL,
+    role_status            VARCHAR(50)  NOT NULL,
+    effective_from         DATE,
+    effective_to           DATE,
+    tenant_id              VARCHAR(36)  NOT NULL,
+    version                BIGINT       NOT NULL DEFAULT 0,
+    created_at             TIMESTAMP,
+    created_by             VARCHAR(100),
+    last_modified_at       TIMESTAMP,
+    last_modified_by       VARCHAR(100),
+    CONSTRAINT fk_role_assignment_person FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_role_assignment_person    ON pc_institutional_role_assignment (person_id);
+CREATE INDEX idx_role_assignment_role_code ON pc_institutional_role_assignment (role_code, role_status);
+CREATE INDEX idx_role_assignment_tenant    ON pc_institutional_role_assignment (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V22__create_school_organizational_appointment.sql
+-- ============================================================================
+
+CREATE TABLE pc_school_organizational_appointment (
+    id                          BIGSERIAL    PRIMARY KEY,
+    person_id                   BIGINT       NOT NULL,
+    appointment_code            VARCHAR(50)  NOT NULL,
+    organizational_unit_id      BIGINT,
+    appointment_status          VARCHAR(50)  NOT NULL,
+    started_at                  TIMESTAMP    NOT NULL,
+    ended_at                    TIMESTAMP,
+    tenant_id                   VARCHAR(36)  NOT NULL,
+    version                     BIGINT       NOT NULL DEFAULT 0,
+    created_at                  TIMESTAMP,
+    created_by                  VARCHAR(100),
+    last_modified_at            TIMESTAMP,
+    last_modified_by            VARCHAR(100),
+    CONSTRAINT fk_appointment_person  FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_appointment_person    ON pc_school_organizational_appointment (person_id);
+CREATE INDEX idx_appointment_code      ON pc_school_organizational_appointment (appointment_code, appointment_status);
+CREATE INDEX idx_appointment_tenant    ON pc_school_organizational_appointment (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V23__create_institutional_affiliation.sql
+-- ============================================================================
+
+CREATE TABLE pc_institutional_affiliation (
+    id                      BIGSERIAL    PRIMARY KEY,
+    person_id               BIGINT       NOT NULL,
+    affiliation_type_code   VARCHAR(50)  NOT NULL,
+    site_id                 BIGINT,
+    organizational_unit_id  BIGINT,
+    affiliation_status      VARCHAR(50)  NOT NULL,
+    effective_from          DATE,
+    effective_to            DATE,
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100),
+    CONSTRAINT fk_affiliation_person FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_affiliation_person   ON pc_institutional_affiliation (person_id);
+CREATE INDEX idx_affiliation_tenant   ON pc_institutional_affiliation (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V24__create_person_identity_link.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_identity_link (
+    id                      BIGSERIAL    PRIMARY KEY,
+    person_id               BIGINT       NOT NULL,
+    iam_subject_id          VARCHAR(150) NOT NULL,
+    identity_provider_code  VARCHAR(50),
+    identity_link_status    VARCHAR(50)  NOT NULL,
+    linked_at               TIMESTAMP    NOT NULL,
+    linked_by               VARCHAR(100),
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100),
+    CONSTRAINT fk_identity_link_person FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_identity_link_person ON pc_person_identity_link (person_id);
+CREATE INDEX idx_identity_link_tenant ON pc_person_identity_link (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V25__create_person_document_reference.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_document_reference (
+    id                              BIGSERIAL    PRIMARY KEY,
+    person_id                       BIGINT       NOT NULL,
+    document_reference_type_code    VARCHAR(50)  NOT NULL,
+    asset_id                        BIGINT       NOT NULL,
+    reference_status                VARCHAR(50)  NOT NULL,
+    notes                           TEXT,
+    tenant_id                       VARCHAR(36)  NOT NULL,
+    version                         BIGINT       NOT NULL DEFAULT 0,
+    created_at                      TIMESTAMP,
+    created_by                      VARCHAR(100),
+    last_modified_at                TIMESTAMP,
+    last_modified_by                VARCHAR(100),
+    CONSTRAINT fk_doc_ref_person FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_doc_ref_person ON pc_person_document_reference (person_id);
+CREATE INDEX idx_doc_ref_tenant ON pc_person_document_reference (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V26__create_person_sensitive_profile.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_sensitive_profile (
+    id                          BIGSERIAL    PRIMARY KEY,
+    person_id                   BIGINT       NOT NULL UNIQUE,
+    blood_type_code             VARCHAR(20),
+    emergency_medical_notes     TEXT,
+    sensitive_profile_status    VARCHAR(50)  NOT NULL,
+    last_reviewed_at            TIMESTAMP,
+    last_reviewed_by            VARCHAR(100),
+    tenant_id                   VARCHAR(36)  NOT NULL,
+    version                     BIGINT       NOT NULL DEFAULT 0,
+    created_at                  TIMESTAMP,
+    created_by                  VARCHAR(100),
+    last_modified_at            TIMESTAMP,
+    last_modified_by            VARCHAR(100),
+    CONSTRAINT fk_sensitive_profile_person FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_sensitive_profile_person ON pc_person_sensitive_profile (person_id);
+CREATE INDEX idx_sensitive_profile_tenant ON pc_person_sensitive_profile (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V27__create_person_sensitive_coverage.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_sensitive_coverage (
+    id                          BIGSERIAL    PRIMARY KEY,
+    person_sensitive_profile_id BIGINT       NOT NULL,
+    person_id                   BIGINT       NOT NULL,
+    coverage_type_code          VARCHAR(50)  NOT NULL,
+    provider_name               VARCHAR(255),
+    policy_number               VARCHAR(120),
+    coverage_status             VARCHAR(50)  NOT NULL,
+    effective_from              DATE,
+    effective_to                DATE,
+    notes                       TEXT,
+    tenant_id                   VARCHAR(36)  NOT NULL,
+    version                     BIGINT       NOT NULL DEFAULT 0,
+    created_at                  TIMESTAMP,
+    created_by                  VARCHAR(100),
+    last_modified_at            TIMESTAMP,
+    last_modified_by            VARCHAR(100),
+    CONSTRAINT fk_sensitive_coverage_profile FOREIGN KEY (person_sensitive_profile_id) REFERENCES pc_person_sensitive_profile(id),
+    CONSTRAINT fk_sensitive_coverage_person  FOREIGN KEY (person_id) REFERENCES pc_person(id)
+);
+
+CREATE INDEX idx_sensitive_coverage_profile ON pc_person_sensitive_coverage (person_sensitive_profile_id);
+CREATE INDEX idx_sensitive_coverage_person  ON pc_person_sensitive_coverage (person_id);
+CREATE INDEX idx_sensitive_coverage_tenant  ON pc_person_sensitive_coverage (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V28__create_person_audit_snapshot.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_audit_snapshot (
+    id              BIGSERIAL    PRIMARY KEY,
+    aggregate_id    BIGINT       NOT NULL,
+    aggregate_type  VARCHAR(100) NOT NULL,
+    snapshot_json   TEXT         NOT NULL,
+    captured_at     TIMESTAMP    NOT NULL,
+    captured_by     VARCHAR(100),
+    person_id       BIGINT,
+    tenant_id       VARCHAR(36)  NOT NULL,
+    version         BIGINT       NOT NULL DEFAULT 0,
+    created_at      TIMESTAMP,
+    created_by      VARCHAR(100),
+    last_modified_at TIMESTAMP,
+    last_modified_by VARCHAR(100)
+);
+
+CREATE INDEX idx_audit_snapshot_aggregate ON pc_person_audit_snapshot (aggregate_id);
+CREATE INDEX idx_audit_snapshot_person    ON pc_person_audit_snapshot (person_id);
+CREATE INDEX idx_audit_snapshot_tenant    ON pc_person_audit_snapshot (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V29__create_person_evidence_relation.sql
+-- ============================================================================
+
+CREATE TABLE pc_person_evidence_relation (
+    id                      BIGSERIAL    PRIMARY KEY,
+    person_id               BIGINT,
+    household_id            BIGINT,
+    related_context_type    VARCHAR(60)  NOT NULL,
+    related_context_ref_id  VARCHAR(120) NOT NULL,
+    evidence_role_code      VARCHAR(60)  NOT NULL,
+    asset_id                BIGINT       NOT NULL,
+    evidence_status         VARCHAR(50)  NOT NULL,
+    tenant_id               VARCHAR(36)  NOT NULL,
+    version                 BIGINT       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMP,
+    created_by              VARCHAR(100),
+    last_modified_at        TIMESTAMP,
+    last_modified_by        VARCHAR(100)
+);
+
+CREATE INDEX idx_evidence_rel_person    ON pc_person_evidence_relation (person_id);
+CREATE INDEX idx_evidence_rel_household ON pc_person_evidence_relation (household_id);
+CREATE INDEX idx_evidence_rel_tenant    ON pc_person_evidence_relation (tenant_id);
+
+-- ============================================================================
+-- MIGRATION: V30__enforce_unique_legal_identity_document.sql
+-- ============================================================================
+
+CREATE UNIQUE INDEX uq_person_legal_identity_document
+    ON pc_person_legal_identity (tenant_id, tipo, numero);
+
+-- ============================================================================
+-- MIGRATION: V31__create_org_group_and_unit_site.sql
+-- ============================================================================
+
+CREATE TABLE pc_org_group (
+    id                    BIGSERIAL    PRIMARY KEY,
+    tenant_code           VARCHAR(40)  NOT NULL,
+    legal_name            VARCHAR(220) NOT NULL,
+    commercial_name       VARCHAR(220),
+    tax_identifier        VARCHAR(60),
+    country_code          VARCHAR(10)  NOT NULL DEFAULT 'BO',
+    default_currency_code VARCHAR(10)  NOT NULL DEFAULT 'BOB',
+    default_timezone      VARCHAR(80)  NOT NULL DEFAULT 'America/La_Paz',
+    org_group_status      VARCHAR(30)  NOT NULL,
+    tenant_id             VARCHAR(36)  NOT NULL,
+    version               BIGINT       NOT NULL DEFAULT 0,
+    created_at            TIMESTAMP,
+    created_by            VARCHAR(100),
+    last_modified_at      TIMESTAMP,
+    last_modified_by      VARCHAR(100),
+    CONSTRAINT uq_org_group_tenant_code UNIQUE (tenant_code, tenant_id)
+);
+
+CREATE INDEX idx_org_group_tenant ON pc_org_group (tenant_id);
+
+CREATE TABLE pc_unit_site (
+    id                 BIGSERIAL    PRIMARY KEY,
+    education_unit_id  BIGINT       NOT NULL REFERENCES pc_education_unit(id),
+    site_code          VARCHAR(50)  NOT NULL,
+    site_name          VARCHAR(180) NOT NULL,
+    address_line       VARCHAR(250),
+    city_name          VARCHAR(120),
+    department_name    VARCHAR(120),
+    phone_number       VARCHAR(50),
+    email_address      VARCHAR(150),
+    is_main_site       BOOLEAN      NOT NULL DEFAULT FALSE,
+    site_status        VARCHAR(30)  NOT NULL,
+    tenant_id          VARCHAR(36)  NOT NULL,
+    version            BIGINT       NOT NULL DEFAULT 0,
+    created_at         TIMESTAMP,
+    created_by         VARCHAR(100),
+    last_modified_at   TIMESTAMP,
+    last_modified_by   VARCHAR(100),
+    CONSTRAINT uq_unit_site_code_tenant UNIQUE (site_code, tenant_id)
+);
+
+CREATE INDEX idx_unit_site_tenant ON pc_unit_site (tenant_id);
+CREATE INDEX idx_unit_site_education_unit ON pc_unit_site (education_unit_id);
